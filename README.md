@@ -142,11 +142,12 @@ TemperatureShipmentCompliance/
 ├── db_connection.py
 ├── .env
 ├── .gitignore
+├── cold_chain_schema.sql
 ├── requirements.txt
 └── README.md
 ```
 
-The structure above represents the main files created during the workflow. Include other existing scripts or SQL schema files in the final repository as appropriate.
+cold_chain_schema.sql contains the database table definitions. The .env file is created locally and must never be committed to GitHub.
 
 ## Setup
 
@@ -176,25 +177,67 @@ Replace the example password with your local MySQL password. Never commit `.env`
 
 ### 4. Create the database
 
-Create the `cold_chain_compliance` database and execute the project's SQL schema before running the data-generation scripts.
+Create the `cold_chain_compliance` database in MySQL if it does not already exist. Import `cold_chain_schema.sql` to create the 14 database tables.
+
+**Important:** The schema file contains table definitions only, not the generated shipment data. For a fresh database setup, run the data-generation scripts in the correct order. Do not import this schema into your existing populated database because it contains commands that can drop existing tables.
 
 ### 5. Run the pipeline
 
-Run each script from the project root in the following order, after confirming that its prerequisites and database tables are available:
+**Important:** The following instructions describe a fresh database setup. Do not run these commands against the existing populated project database.
+
+First, create the `cold_chain_compliance` database in MySQL and import `cold_chain_schema.sql` using MySQL Workbench. The schema contains table definitions only.
+
+#### Step 1: Generate reference data and loggers
+
+Run:
+
+```powershell
+python src/generate_data.py
+```
+
+This calls `seed_reference_data()` and `seed_loggers()`.
+
+#### Step 2: Generate shipments and assign loggers
+
+The current `generate_data.py` main block does not call these two functions automatically. Run them separately:
+
+```powershell
+python -c "from src.generate_data import seed_shipments; seed_shipments()"
+python -c "from src.generate_data import seed_shipment_loggers; seed_shipment_loggers()"
+```
+
+Confirm that shipment records and logger assignments were created successfully before continuing.
+
+#### Step 3: Generate temperature readings and shipment events
 
 ```powershell
 python src/generate_temperature_readings.py
 python src/generate_shipment_events.py
+```
+
+#### Step 4: Inject controlled anomalies
+
+```powershell
 python src/generate_anomalies.py
+```
+
+This creates controlled temperature anomalies and writes the ground-truth CSV used for validation.
+
+#### Step 5: Evaluate compliance and generate exceptions
+
+```powershell
 python src/compliance_engine.py
 python src/generate_exception_events.py
+```
+
+#### Step 6: Validate the results
+
+```powershell
 python src/validate_ground_truth.py
 python src/validate_data_quality.py
 ```
 
-Reference-data, logger, shipment, and logger-assignment generation must be completed before temperature reading generation.
-
-**Important:** Some scripts deliberately stop if their destination tables already contain records. Do not blindly rerun the full pipeline against a populated database. Use a clean development database or implement an explicit reset and rerun procedure first.
+**Safety note:** Several scripts stop when destination tables already contain data. The logger-assignment function also rebuilds assignment rows. Use a separate, empty development database for a fresh setup and do not rerun these generators against the existing populated database.
 
 ## Testing
 
